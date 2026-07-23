@@ -1,0 +1,45 @@
+name: Update prep buffer calendar
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # every 30 minutes (GitHub may delay this a bit)
+  workflow_dispatch: {}       # allows manual "Run workflow" button
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Generate buffer.ics
+        env:
+          BOOKING_ICS_URL: ${{ secrets.BOOKING_ICS_URL }}
+          BUFFER_BEFORE: "1"   # nights blocked before each check-in
+          BUFFER_AFTER: "1"    # nights blocked after each check-out (set "0" to disable)
+        run: python3 generate_buffer.py
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "buffer-bot"
+          git config user.email "actions@github.com"
+
+          # Weekly keep-alive so GitHub doesn't disable the schedule
+          # after 60 days without repository activity.
+          touch .last-run
+          LAST=$(cat .last-run 2>/dev/null || echo 0)
+          NOW=$(date +%s)
+          if [ $((NOW - LAST)) -gt 604800 ]; then
+            echo "$NOW" > .last-run
+          fi
+
+          git add buffer.ics .last-run
+          if git diff --cached --quiet; then
+            echo "No changes - nothing to commit."
+          else
+            git commit -m "Update buffer calendar"
+            git push
+          fi
